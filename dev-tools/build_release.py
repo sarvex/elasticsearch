@@ -75,14 +75,13 @@ def log(msg):
   log_plain('\n%s' % msg)
 
 def log_plain(msg):
-  f = open(LOG, mode='ab')
-  f.write(msg.encode('utf-8'))
-  f.close()
+  with open(LOG, mode='ab') as f:
+    f.write(msg.encode('utf-8'))
 
 def run(command, quiet=False):
   log('%s: RUN: %s\n' % (datetime.datetime.now(), command))
-  if os.system('%s >> %s 2>&1' % (command, LOG)):
-    msg = '    FAILED: %s [see log %s]' % (command, LOG)
+  if os.system(f'{command} >> {LOG} 2>&1'):
+    msg = f'    FAILED: {command} [see log {LOG}]'
     if not quiet:
       print(msg)
     raise RuntimeError(msg)
@@ -110,18 +109,18 @@ except subprocess.CalledProcessError:
 
 def java_exe():
   path = JAVA_HOME
-  return 'export JAVA_HOME="%s" PATH="%s/bin:$PATH" JAVACMD="%s/bin/java"' % (path, path, path)
+  return f'export JAVA_HOME="{path}" PATH="{path}/bin:$PATH" JAVACMD="{path}/bin/java"'
 
 def verify_java_version(version):
-  s = os.popen('%s; java -version 2>&1' % java_exe()).read()
-  if ' version "%s.' % version not in s:
+  s = os.popen(f'{java_exe()}; java -version 2>&1').read()
+  if f' version "{version}.' not in s:
     raise RuntimeError('got wrong version for java %s:\n%s' % (version, s))
 
 # Verifies the java version. We guarantee that we run with Java 1.7
 # If 1.7 is not available fail the build!
 def verify_mvn_java_version(version, mvn):
-  s = os.popen('%s; %s --version 2>&1' % (java_exe(), mvn)).read()
-  if 'Java version: %s' % version not in s:
+  s = os.popen(f'{java_exe()}; {mvn} --version 2>&1').read()
+  if f'Java version: {version}' not in s:
     raise RuntimeError('got wrong java version for %s %s:\n%s' % (mvn, version, s))
 
 # Returns the hash of the current git HEAD revision
@@ -130,7 +129,7 @@ def get_head_hash():
 
 # Returns the hash of the given tag revision
 def get_tag_hash(tag):
-  return os.popen('git show-ref --tags %s --hash 2>&1' % (tag)).read().strip()
+  return os.popen(f'git show-ref --tags {tag} --hash 2>&1').read().strip()
 
 # Returns the name of the current branch
 def get_current_branch():
@@ -141,20 +140,20 @@ verify_mvn_java_version('1.7', MVN)
 
 # Utility that returns the name of the release branch for a given version
 def release_branch(version):
-  return 'release_branch_%s' % version
+  return f'release_branch_{version}'
 
 # runs get fetch on the given remote
 def fetch(remote):
-  run('git fetch %s' % remote)
+  run(f'git fetch {remote}')
 
 # Creates a new release branch from the given source branch
 # and rebases the source branch from the remote before creating
 # the release branch. Note: This fails if the source branch
 # doesn't exist on the provided remote.
 def create_release_branch(remote, src_branch, release):
-  run('git checkout %s' % src_branch)
-  run('git pull --rebase %s %s' % (remote, src_branch))
-  run('git checkout -b %s' % (release_branch(release)))
+  run(f'git checkout {src_branch}')
+  run(f'git pull --rebase {remote} {src_branch}')
+  run(f'git checkout -b {release_branch(release)}')
 
 
 # Reads the given file and applies the
@@ -186,11 +185,12 @@ def process_file(file_path, line_callback):
 # and replaces all 'coming[$version]' tags with
 # 'added[$version]'. This method only accesses asciidoc files.
 def update_reference_docs(release_version, path='docs'):
-  pattern = 'coming[%s' % (release_version)
-  replacement = 'added[%s' % (release_version)
+  pattern = f'coming[{release_version}'
+  replacement = f'added[{release_version}'
   pending_files = []
   def callback(line):
     return line.replace(pattern, replacement)
+
   for root, _, file_names in os.walk(path):
     for file_name in fnmatch.filter(file_names, '*.asciidoc'):
       full_path = os.path.join(root, file_name)
@@ -200,54 +200,59 @@ def update_reference_docs(release_version, path='docs'):
 
 # Moves the pom.xml file from a snapshot to a release
 def remove_maven_snapshot(pom, release):
-  pattern = '<version>%s-SNAPSHOT</version>' % (release)
-  replacement = '<version>%s</version>' % (release)
+  pattern = f'<version>{release}-SNAPSHOT</version>'
+  replacement = f'<version>{release}</version>'
   def callback(line):
     return line.replace(pattern, replacement)
+
   process_file(pom, callback)
 
 # Moves the Version.java file from a snapshot to a release
 def remove_version_snapshot(version_file, release):
   # 1.0.0.Beta1 -> 1_0_0_Beta1
   release = release.replace('.', '_')
-  pattern = 'new Version(V_%s_ID, true' % (release)
-  replacement = 'new Version(V_%s_ID, false' % (release)
+  pattern = f'new Version(V_{release}_ID, true'
+  replacement = f'new Version(V_{release}_ID, false'
   def callback(line):
     return line.replace(pattern, replacement)
+
   process_file(version_file, callback)
 
 # Stages the given files for the next git commit
 def add_pending_files(*files):
   for file in files:
-    run('git add %s' % (file))
+    run(f'git add {file}')
 
 # Executes a git commit with 'release [version]' as the commit message
 def commit_release(release):
-  run('git commit -m "release [%s]"' % release)
+  run(f'git commit -m "release [{release}]"')
 
 def commit_feature_flags(release):
-    run('git commit -m "Update Documentation Feature Flags [%s]"' % release)
+  run(f'git commit -m "Update Documentation Feature Flags [{release}]"')
 
 def tag_release(release):
-  run('git tag -a v%s -m "Tag release version %s"' % (release, release))
+  run(f'git tag -a v{release} -m "Tag release version {release}"')
 
 def run_mvn(*cmd):
   for c in cmd:
-    run('%s; %s %s' % (java_exe(), MVN, c))
+    run(f'{java_exe()}; {MVN} {c}')
 
 def build_release(run_tests=False, dry_run=True, cpus=1, bwc_version=None):
-  target = 'deploy'
-  if dry_run:
-    target = 'package'
+  target = 'package' if dry_run else 'deploy'
   if run_tests:
-    run_mvn('clean',
-            'test -Dtests.jvms=%s -Des.node.mode=local' % (cpus),
-            'test -Dtests.jvms=%s -Des.node.mode=network' % (cpus))
+    run_mvn(
+        'clean',
+        f'test -Dtests.jvms={cpus} -Des.node.mode=local',
+        f'test -Dtests.jvms={cpus} -Des.node.mode=network',
+    )
   if bwc_version:
-      print('Running Backwards compatibility tests against version [%s]' % (bwc_version))
-      run_mvn('clean', 'test -Dtests.filter=@backwards -Dtests.bwc.version=%s -Dtests.bwc=true -Dtests.jvms=1' % bwc_version)
+    print(f'Running Backwards compatibility tests against version [{bwc_version}]')
+    run_mvn(
+        'clean',
+        f'test -Dtests.filter=@backwards -Dtests.bwc.version={bwc_version} -Dtests.bwc=true -Dtests.jvms=1',
+    )
   run_mvn('clean test-compile -Dforbidden.test.signatures="org.apache.lucene.util.LuceneTestCase\$AwaitsFix @ Please fix all bugs before release"')
-  run_mvn('clean %s -DskipTests' % (target))
+  run_mvn(f'clean {target} -DskipTests')
   success = False
   try:
     run_mvn('-DskipTests rpm:rpm')
@@ -264,24 +269,26 @@ def build_release(run_tests=False, dry_run=True, cpus=1, bwc_version=None):
 # Uses the github API to fetch open tickets for the given release version
 # if it finds any tickets open for that version it will throw an exception
 def ensure_no_open_tickets(version):
-  version = "v%s" % version
+  version = f"v{version}"
   conn = HTTPSConnection('api.github.com')
   try:
-    log('Checking for open tickets on Github for version %s' % version)
+    log(f'Checking for open tickets on Github for version {version}')
     log('Check if node is available')
-    conn.request('GET', '/repos/elasticsearch/elasticsearch/issues?state=open&labels=%s' % version, headers= {'User-Agent' : 'Elasticsearch version checker'})
+    conn.request(
+        'GET',
+        f'/repos/elasticsearch/elasticsearch/issues?state=open&labels={version}',
+        headers={'User-Agent': 'Elasticsearch version checker'},
+    )
     res = conn.getresponse()
-    if res.status == 200:
-      issues = json.loads(res.read().decode("utf-8"))
-      if issues:
-        urls = []
-        for issue in issues:
-          urls.append(issue['html_url'])
-        raise RuntimeError('Found open issues for release version %s:\n%s' % (version, '\n'.join(urls)))
-      else:
-        log("No open issues found for version %s" % version)
+    if res.status != 200:
+      raise RuntimeError(
+          f'Failed to fetch issue list from Github for release version {version}'
+      )
+    if issues := json.loads(res.read().decode("utf-8")):
+      urls = [issue['html_url'] for issue in issues]
+      raise RuntimeError('Found open issues for release version %s:\n%s' % (version, '\n'.join(urls)))
     else:
-      raise RuntimeError('Failed to fetch issue list from Github for release version %s' % version)
+      log(f"No open issues found for version {version}")
   except socket.error as e:
     log("Failed to fetch issue list from Github for release version %s' % version - Exception: [%s]" % (version, e))
     #that is ok it might not be there yet
@@ -300,8 +307,8 @@ def wait_for_node_startup(host='127.0.0.1', port=9200,timeout=15):
       if res.status == 200:
         return True
     except socket.error as e:
-      log("Failed while waiting for node - Exception: [%s]" % e)
-      #that is ok it might not be there yet
+      log(f"Failed while waiting for node - Exception: [{e}]")
+          #that is ok it might not be there yet
     finally:
       conn.close()
 
@@ -316,46 +323,55 @@ def verify_lucene_version():
   m = re.search(r'<lucene.version>(.*?)</lucene.version>', s)
   if m is None:
     raise RuntimeError('unable to locate lucene.version in pom.xml')
-  lucene_version = m.group(1)
+  lucene_version = m[1]
 
   m = re.search(r'<lucene.maven.version>(.*?)</lucene.maven.version>', s)
   if m is None:
     raise RuntimeError('unable to locate lucene.maven.version in pom.xml')
-  lucene_maven_version = m.group(1)
+  lucene_maven_version = m[1]
   if lucene_version != lucene_maven_version:
-    raise RuntimeError('pom.xml is still using a snapshot release of lucene (%s): cutover to a real lucene release before releasing' % lucene_maven_version)
+    raise RuntimeError(
+        f'pom.xml is still using a snapshot release of lucene ({lucene_maven_version}): cutover to a real lucene release before releasing'
+    )
     
 # Checks the pom.xml for the release version.
 # This method fails if the pom file has no SNAPSHOT version set ie.
 # if the version is already on a release version we fail.
 # Returns the next version string ie. 0.90.7
 def find_release_version(src_branch):
-  run('git checkout %s' % src_branch)
+  run(f'git checkout {src_branch}')
   with open('pom.xml', encoding='utf-8') as file:
     for line in file:
-      match = re.search(r'<version>(.+)-SNAPSHOT</version>', line)
-      if match:
-        return match.group(1)
-    raise RuntimeError('Could not find release version in branch %s' % src_branch)
+      if match := re.search(r'<version>(.+)-SNAPSHOT</version>', line):
+        return match[1]
+    raise RuntimeError(f'Could not find release version in branch {src_branch}')
 
 def artifact_names(release, path = ''):
-  return [os.path.join(path, 'elasticsearch-%s.%s' % (release, t)) for t in ['deb', 'tar.gz', 'zip']]
+  return [
+      os.path.join(path, f'elasticsearch-{release}.{t}')
+      for t in ['deb', 'tar.gz', 'zip']
+  ]
 
 def get_artifacts(release):
   common_artifacts = artifact_names(release, 'target/releases/')
   for f in common_artifacts:
     if not os.path.isfile(f):
-      raise RuntimeError('Could not find required artifact at %s' % f)
-  rpm = os.path.join('target/rpm/elasticsearch/RPMS/noarch/', 'elasticsearch-%s-1.noarch.rpm' % release)
-  if os.path.isfile(rpm):
-    log('RPM [%s] contains: ' % rpm)
-    run('rpm -pqli %s' % rpm)
+      raise RuntimeError(f'Could not find required artifact at {f}')
+  rpm = os.path.join(
+      'target/rpm/elasticsearch/RPMS/noarch/',
+      f'elasticsearch-{release}-1.noarch.rpm',
+  )
+  if not os.path.isfile(rpm):
+    raise RuntimeError(f'Could not find required artifact at {rpm}')
+  log(f'RPM [{rpm}] contains: ')
+  run(f'rpm -pqli {rpm}')
     # this is an oddness of RPM that is attches -1 so we have to rename it
-    renamed_rpm = os.path.join('target/rpm/elasticsearch/RPMS/noarch/', 'elasticsearch-%s.noarch.rpm' % release)
-    shutil.move(rpm, renamed_rpm)
-    common_artifacts.append(renamed_rpm)
-  else:
-    raise RuntimeError('Could not find required artifact at %s' % rpm)
+  renamed_rpm = os.path.join(
+      'target/rpm/elasticsearch/RPMS/noarch/',
+      f'elasticsearch-{release}.noarch.rpm',
+  )
+  shutil.move(rpm, renamed_rpm)
+  common_artifacts.append(renamed_rpm)
   return common_artifacts
 
 # Checks the jar files in each package
@@ -382,31 +398,32 @@ def generate_checksums(files):
   for release_file in files:
     directory = os.path.dirname(release_file)
     file = os.path.basename(release_file)
-    checksum_file = '%s.sha1.txt' % file
+    checksum_file = f'{file}.sha1.txt'
 
-    if os.system('cd %s; shasum %s > %s' % (directory, file, checksum_file)):
-      raise RuntimeError('Failed to generate checksum for file %s' % release_file)
+    if os.system(f'cd {directory}; shasum {file} > {checksum_file}'):
+      raise RuntimeError(f'Failed to generate checksum for file {release_file}')
     res = res + [os.path.join(directory, checksum_file), release_file]
   return res
 
 def download_and_verify(release, files, plugins=None, base_url='https://download.elasticsearch.org/elasticsearch/elasticsearch'):
-  print('Downloading and verifying release %s from %s' % (release, base_url))
+  print(f'Downloading and verifying release {release} from {base_url}')
   tmp_dir = tempfile.mkdtemp()
   try:
     downloaded_files = []
     for file in files:
       name = os.path.basename(file)
-      url = '%s/%s' % (base_url, name)
+      url = f'{base_url}/{name}'
       abs_file_path = os.path.join(tmp_dir, name)
-      print('  Downloading %s' % (url))
+      print(f'  Downloading {url}')
       downloaded_files.append(abs_file_path)
       urllib.request.urlretrieve(url, abs_file_path)
       url = ''.join([url, '.sha1.txt'])
       checksum_file = os.path.join(tmp_dir, ''.join([abs_file_path, '.sha1.txt']))
       urllib.request.urlretrieve(url, checksum_file)
-      print('  Verifying checksum %s' % (checksum_file))
-      run('cd %s && sha1sum -c %s' % (tmp_dir, os.path.basename(checksum_file)))
-    smoke_test_release(release, downloaded_files, get_tag_hash('v%s' % release), plugins)
+      print(f'  Verifying checksum {checksum_file}')
+      run(f'cd {tmp_dir} && sha1sum -c {os.path.basename(checksum_file)}')
+    smoke_test_release(release, downloaded_files, get_tag_hash(f'v{release}'),
+                       plugins)
     print('  SUCCESS')
   finally:
     shutil.rmtree(tmp_dir)
@@ -414,94 +431,96 @@ def download_and_verify(release, files, plugins=None, base_url='https://download
 def smoke_test_release(release, files, expected_hash, plugins):
   for release_file in files:
     if not os.path.isfile(release_file):
-      raise RuntimeError('Smoketest failed missing file %s' % (release_file))
+      raise RuntimeError(f'Smoketest failed missing file {release_file}')
     tmp_dir = tempfile.mkdtemp()
     if release_file.endswith('tar.gz'):
-      run('tar -xzf %s -C %s' % (release_file, tmp_dir))
+      run(f'tar -xzf {release_file} -C {tmp_dir}')
     elif release_file.endswith('zip'):
-      run('unzip %s -d %s' % (release_file, tmp_dir))
+      run(f'unzip {release_file} -d {tmp_dir}')
     else:
-      log('Skip SmokeTest for [%s]' % release_file)
+      log(f'Skip SmokeTest for [{release_file}]')
       continue # nothing to do here
-    es_run_path = os.path.join(tmp_dir, 'elasticsearch-%s' % (release), 'bin/elasticsearch')
-    print('  Smoke testing package [%s]' % release_file)
-    es_plugin_path = os.path.join(tmp_dir, 'elasticsearch-%s' % (release),'bin/plugin')
+    es_run_path = os.path.join(tmp_dir, f'elasticsearch-{release}',
+                               'bin/elasticsearch')
+    print(f'  Smoke testing package [{release_file}]')
+    es_plugin_path = os.path.join(tmp_dir, f'elasticsearch-{release}',
+                                  'bin/plugin')
     plugin_names = {}
-    for name, plugin  in plugins:
-      print('  Install plugin [%s] from [%s]' % (name, plugin))
-      run('%s; %s %s %s' % (java_exe(), es_plugin_path, '-install', plugin))
+    for name, plugin in plugins:
+      print(f'  Install plugin [{name}] from [{plugin}]')
+      run(f'{java_exe()}; {es_plugin_path} -install {plugin}')
       plugin_names[name] = True
 
-    if release.startswith("0.90."):
-      background = '' # 0.90.x starts in background automatically
-    else:
-      background = '-d'
-    print('  Starting elasticsearch deamon from [%s]' % os.path.join(tmp_dir, 'elasticsearch-%s' % release))
-    run('%s; %s -Des.node.name=smoke_tester -Des.cluster.name=prepare_release -Des.discovery.zen.ping.multicast.enabled=false -Des.node.bench=true -Des.script.disable_dynamic=false %s'
-         % (java_exe(), es_run_path, background))
+    background = '' if release.startswith("0.90.") else '-d'
+    print(
+        f"  Starting elasticsearch deamon from [{os.path.join(tmp_dir, f'elasticsearch-{release}')}]"
+    )
+    run(f'{java_exe()}; {es_run_path} -Des.node.name=smoke_tester -Des.cluster.name=prepare_release -Des.discovery.zen.ping.multicast.enabled=false -Des.node.bench=true -Des.script.disable_dynamic=false {background}'
+        )
     conn = HTTPConnection('127.0.0.1', 9200, 20);
     wait_for_node_startup()
     try:
       try:
         conn.request('GET', '')
         res = conn.getresponse()
-        if res.status == 200:
-          version = json.loads(res.read().decode("utf-8"))['version']
-          if release != version['number']:
-            raise RuntimeError('Expected version [%s] but was [%s]' % (release, version['number']))
-          if version['build_snapshot']:
-            raise RuntimeError('Expected non snapshot version')
-          if version['build_hash'].strip() !=  expected_hash:
-            raise RuntimeError('HEAD hash does not match expected [%s] but got [%s]' % (expected_hash, version['build_hash']))
-          print('  Running REST Spec tests against package [%s]' % release_file)
-          run_mvn('test -Dtests.cluster=%s -Dtests.class=*.*RestTests' % ("127.0.0.1:9300"))
-          print('  Verify if plugins are listed in _nodes')
-          conn.request('GET', '/_nodes?plugin=true&pretty=true')
-          res = conn.getresponse()
-          if res.status == 200:
-            nodes = json.loads(res.read().decode("utf-8"))['nodes']
-            for _, node in nodes.items():
-              node_plugins = node['plugins']
-              for node_plugin in node_plugins:
-                if not plugin_names.get(node_plugin['name'], False):
-                  raise RuntimeError('Unexpeced plugin %s' % node_plugin['name'])
-                del plugin_names[node_plugin['name']]
-            if plugin_names:
-              raise RuntimeError('Plugins not loaded %s' % list(plugin_names.keys()))
+        if res.status != 200:
+          raise RuntimeError(f'Expected HTTP 200 but got {res.status}')
+        version = json.loads(res.read().decode("utf-8"))['version']
+        if release != version['number']:
+          raise RuntimeError(
+              f"Expected version [{release}] but was [{version['number']}]")
+        if version['build_snapshot']:
+          raise RuntimeError('Expected non snapshot version')
+        if version['build_hash'].strip() !=  expected_hash:
+          raise RuntimeError(
+              f"HEAD hash does not match expected [{expected_hash}] but got [{version['build_hash']}]"
+          )
+        print(f'  Running REST Spec tests against package [{release_file}]')
+        run_mvn('test -Dtests.cluster=127.0.0.1:9300 -Dtests.class=*.*RestTests')
+        print('  Verify if plugins are listed in _nodes')
+        conn.request('GET', '/_nodes?plugin=true&pretty=true')
+        res = conn.getresponse()
+        if res.status != 200:
+          raise RuntimeError(f'Expected HTTP 200 but got {res.status}')
+        nodes = json.loads(res.read().decode("utf-8"))['nodes']
+        for _, node in nodes.items():
+          node_plugins = node['plugins']
+          for node_plugin in node_plugins:
+            if not plugin_names.get(node_plugin['name'], False):
+              raise RuntimeError(f"Unexpeced plugin {node_plugin['name']}")
+            del plugin_names[node_plugin['name']]
+        if plugin_names:
+          raise RuntimeError(f'Plugins not loaded {list(plugin_names.keys())}')
 
-          else:
-           raise RuntimeError('Expected HTTP 200 but got %s' % res.status)
-        else:
-          raise RuntimeError('Expected HTTP 200 but got %s' % res.status)
       finally:
         conn.request('POST', '/_cluster/nodes/_local/_shutdown')
         time.sleep(1) # give the node some time to shut down
         if conn.getresponse().status != 200:
-          raise RuntimeError('Expected HTTP 200 but got %s on node shutdown' % res.status)
+          raise RuntimeError(f'Expected HTTP 200 but got {res.status} on node shutdown')
 
     finally:
       conn.close()
     shutil.rmtree(tmp_dir)
 
 def merge_tag_push(remote, src_branch, release_version, dry_run):
-  run('git checkout %s' %  src_branch)
-  run('git merge %s' %  release_branch(release_version))
-  run('git tag v%s' % release_version)
+  run(f'git checkout {src_branch}')
+  run(f'git merge {release_branch(release_version)}')
+  run(f'git tag v{release_version}')
   if not dry_run:
-    run('git push %s %s' % (remote, src_branch)) # push the commit
-    run('git push %s v%s' % (remote, release_version)) # push the tag
+    run(f'git push {remote} {src_branch}')
+    run(f'git push {remote} v{release_version}')
   else:
-    print('  dryrun [True] -- skipping push to remote %s' % remote)
+    print(f'  dryrun [True] -- skipping push to remote {remote}')
 
 def publish_artifacts(artifacts, base='elasticsearch/elasticsearch', dry_run=True):
   location = os.path.dirname(os.path.realpath(__file__))
   for artifact in artifacts:
     if dry_run:
-      print('Skip Uploading %s to Amazon S3' % artifact)
+      print(f'Skip Uploading {artifact} to Amazon S3')
     else:
-      print('Uploading %s to Amazon S3' % artifact)
+      print(f'Uploading {artifact} to Amazon S3')
       # requires boto to be installed but it is not available on python3k yet so we use a dedicated tool
-      run('python %s/upload-s3.py --file %s ' % (location, os.path.abspath(artifact)))
+      run(f'python {location}/upload-s3.py --file {os.path.abspath(artifact)} ')
 
 def print_sonatype_notice():
   settings = os.path.join(os.path.expanduser('~'), '.m2/settings.xml')
@@ -545,19 +564,21 @@ print_sonatype_notice()
 
 # finds the highest available bwc version to test against
 def find_bwc_version(release_version, bwc_dir='backwards'):
-  log('  Lookup bwc version in directory [%s]' % bwc_dir)
+  log(f'  Lookup bwc version in directory [{bwc_dir}]')
   bwc_version = None
   if os.path.exists(bwc_dir) and os.path.isdir(bwc_dir):
     max_version = [int(x) for x in release_version.split('.')]
     for dir in os.listdir(bwc_dir):
       if os.path.isdir(os.path.join(bwc_dir, dir)) and dir.startswith('elasticsearch-'):
         version = [int(x) for x in dir[len('elasticsearch-'):].split('.')]
-        if version < max_version: # bwc tests only against smaller versions
-          if (not bwc_version) or version > [int(x) for x in bwc_version.split('.')]:
-            bwc_version = dir[len('elasticsearch-'):]
-    log('  Using bwc version [%s]' % bwc_version)
+        if version < max_version and (
+            (not bwc_version)
+            or version > [int(x) for x in bwc_version.split('.')]):
+          bwc_version = dir[len('elasticsearch-'):]
+    log(f'  Using bwc version [{bwc_version}]')
   else:
-    log('  bwc directory [%s] does not exists or is not a directory - skipping' % bwc_dir)
+    log(f'  bwc directory [{bwc_dir}] does not exists or is not a directory - skipping'
+        )
   return bwc_version
 
 def ensure_checkout_is_clean(branchName):
@@ -572,7 +593,7 @@ def ensure_checkout_is_clean(branchName):
     raise RuntimeError('git status shows untracked files: got:\n%s' % s)
 
   # Make sure we are on the right branch (NOTE: a bit weak, since we default to current branch):
-  if 'On branch %s' % branchName not in s:
+  if f'On branch {branchName}' not in s:
     raise RuntimeError('git status does not show branch %s: got:\n%s' % (branchName, s))
 
   # Make sure we have all changes from origin:
@@ -614,17 +635,19 @@ if __name__ == '__main__':
   smoke_test_version = args.smoke
 
   if os.path.exists(LOG):
-    raise RuntimeError('please remove old release log %s first' % LOG)
-  
+    raise RuntimeError(f'please remove old release log {LOG} first')
+
   if not dry_run:
     check_s3_credentials()
     print('WARNING: dryrun is set to "false" - this will push and publish the release')
     input('Press Enter to continue...')
 
   print(''.join(['-' for _ in range(80)]))
-  print('Preparing Release from branch [%s] running tests: [%s] dryrun: [%s]' % (src_branch, run_tests, dry_run))
-  print('  JAVA_HOME is [%s]' % JAVA_HOME)
-  print('  Running with maven command: [%s] ' % (MVN))
+  print(
+      f'Preparing Release from branch [{src_branch}] running tests: [{run_tests}] dryrun: [{dry_run}]'
+  )
+  print(f'  JAVA_HOME is [{JAVA_HOME}]')
+  print(f'  Running with maven command: [{MVN}] ')
   if build:
     ensure_checkout_is_clean(src_branch)
     verify_lucene_version()
@@ -634,9 +657,9 @@ if __name__ == '__main__':
       smoke_test_version = release_version
     head_hash = get_head_hash()
     run_mvn('clean') # clean the env!
-    print('  Release version: [%s]' % release_version)
+    print(f'  Release version: [{release_version}]')
     create_release_branch(remote, src_branch, release_version)
-    print('  Created release branch [%s]' % (release_branch(release_version)))
+    print(f'  Created release branch [{release_branch(release_version)}]')
     success = False
     try:
       pending_files = [POM_FILE, VERSION_FILE]
@@ -652,14 +675,16 @@ if __name__ == '__main__':
         add_pending_files(*pending_files) # expects var args use * to expand
         commit_feature_flags(release_version)
         version_head_hash = get_head_hash()
-      print('  Committed release version [%s]' % release_version)
+      print(f'  Committed release version [{release_version}]')
       print(''.join(['-' for _ in range(80)]))
       print('Building Release candidate')
       input('Press Enter to continue...')
       if not dry_run:
-        print('  Running maven builds now and publish to Sonatype - run-tests [%s]' % run_tests)
+        print(
+            f'  Running maven builds now and publish to Sonatype - run-tests [{run_tests}]'
+        )
       else:
-        print('  Running maven builds now run-tests [%s]' % run_tests)
+        print(f'  Running maven builds now run-tests [{run_tests}]')
       build_release(run_tests=run_tests, dry_run=dry_run, cpus=cpus, bwc_version=find_bwc_version(release_version, bwc_path))
       artifacts = get_artifacts(release_version)
       print('Checking if all artifacts contain the same jars')
@@ -667,11 +692,13 @@ if __name__ == '__main__':
       artifacts_and_checksum = generate_checksums(artifacts)
       smoke_test_release(release_version, artifacts, get_head_hash(), PLUGINS)
       print(''.join(['-' for _ in range(80)]))
-      print('Finish Release -- dry_run: %s' % dry_run)
+      print(f'Finish Release -- dry_run: {dry_run}')
       input('Press Enter to continue...')
-      print('  merge release branch, tag and push to %s %s -- dry_run: %s' % (remote, src_branch, dry_run))
+      print(
+          f'  merge release branch, tag and push to {remote} {src_branch} -- dry_run: {dry_run}'
+      )
       merge_tag_push(remote, src_branch, release_version, dry_run)
-      print('  publish artifacts to S3 -- dry_run: %s' % dry_run)
+      print(f'  publish artifacts to S3 -- dry_run: {dry_run}')
       publish_artifacts(artifacts_and_checksum, dry_run=dry_run)
       cherry_pick_command = '.'
       if version_head_hash:
@@ -692,16 +719,16 @@ if __name__ == '__main__':
     finally:
       if not success:
         run('git reset --hard HEAD')
-        run('git checkout %s' %  src_branch)
+        run(f'git checkout {src_branch}')
       elif dry_run:
-        run('git reset --hard %s' % head_hash)
-        run('git tag -d v%s' % release_version)
+        run(f'git reset --hard {head_hash}')
+        run(f'git tag -d v{release_version}')
       # we delete this one anyways
-      run('git branch -D %s' %  (release_branch(release_version)))
+      run(f'git branch -D {release_branch(release_version)}')
   else:
-    print("Skipping build - smoketest only against version %s" % smoke_test_version)
+    print(f"Skipping build - smoketest only against version {smoke_test_version}")
     run_mvn('clean') # clean the env!
-    
+
   if smoke_test_version:
     fetch(remote)
     download_and_verify(smoke_test_version, artifact_names(smoke_test_version), plugins=PLUGINS)

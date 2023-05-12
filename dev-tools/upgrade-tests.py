@@ -82,15 +82,16 @@ def frequently():
 # asserts the correctness of the given hits given they are sorted asc
 def assert_sort(hits):
   values = [hit['sort'] for hit in hits['hits']['hits']]
-  assert len(values) > 0, 'expected non emtpy result'
+  assert values, 'expected non emtpy result'
   val = min(values)
   for x in values:
-    assert x >= val, '%s >= %s' % (x, val)
+    assert x >= val, f'{x} >= {val}'
     val = x
 
 # asserts that the cluster health didn't timeout etc.
 def assert_health(cluster_health, num_shards, num_replicas):
-  assert cluster_health['timed_out'] == False, 'cluster health timed out %s' % cluster_health
+  assert (cluster_health['timed_out'] == False
+          ), f'cluster health timed out {cluster_health}'
 
 
 # Starts a new elasticsearch node from a released & untared version.
@@ -98,25 +99,30 @@ def assert_health(cluster_health, num_shards, num_replicas):
 # the nodes with the given data directory. This allows shutting down and starting up
 # nodes on the same data dir simulating a full cluster restart.
 def start_node(version, data_dir, node_dir, unicast_host_list, tcp_port, http_port):
-  es_run_path = os.path.join(node_dir, 'elasticsearch-%s' % (version), 'bin/elasticsearch')
-  if version.startswith('0.90.'):
-    foreground = '-f' # 0.90.x starts in background automatically
-  else:
-    foreground = ''
-  return subprocess.Popen([es_run_path,
-    '-Des.path.data=%s' % data_dir, '-Des.cluster.name=upgrade_test',  
-    '-Des.discovery.zen.ping.unicast.hosts=%s' % unicast_host_list, 
-    '-Des.discovery.zen.ping.multicast.enabled=false',
-    '-Des.script.disable_dynamic=true',
-    '-Des.transport.tcp.port=%s' % tcp_port,
-    '-Des.http.port=%s' % http_port,
-    foreground], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+  es_run_path = os.path.join(node_dir, f'elasticsearch-{version}',
+                             'bin/elasticsearch')
+  foreground = '-f' if version.startswith('0.90.') else ''
+  return subprocess.Popen(
+      [
+          es_run_path,
+          f'-Des.path.data={data_dir}',
+          '-Des.cluster.name=upgrade_test',
+          f'-Des.discovery.zen.ping.unicast.hosts={unicast_host_list}',
+          '-Des.discovery.zen.ping.multicast.enabled=false',
+          '-Des.script.disable_dynamic=true',
+          f'-Des.transport.tcp.port={tcp_port}',
+          f'-Des.http.port={http_port}',
+          foreground,
+      ],
+      stdout=subprocess.PIPE,
+      stderr=subprocess.PIPE,
+  )
 
 
 # Indexes the given number of document into the given index
 # and randomly runs refresh, optimize and flush commands
 def index_documents(es, index_name, type, num_docs):
-  logging.info('Indexing %s docs' % num_docs)
+  logging.info(f'Indexing {num_docs} docs')
   for id in range(0, num_docs):
     es.index(index=index_name, doc_type=type, id=id, body={'string': str(random.randint(0, 100)),
                                                            'long_sort': random.randint(0, 100),
@@ -144,7 +150,7 @@ def run_basic_asserts(es, index_name, type, num_docs):
   for _ in range(0, num_docs):
     random_doc_id = random.randint(0, num_docs-1)
     doc = es.get(index=index_name, doc_type=type, id=random_doc_id)
-    assert doc, 'Expected document for id %s but got %s' % (random_doc_id, doc)
+    assert doc, f'Expected document for id {random_doc_id} but got {doc}'
 
   assert_sort(es.search(index=index_name,
                   body={
@@ -166,26 +172,37 @@ def run_basic_asserts(es, index_name, type, num_docs):
 def pick_random_upgrade_version(directory, lower_version=None, upper_version=None):
   if lower_version and upper_version:
     return lower_version, upper_version
-  assert os.path.isdir(directory), 'No such directory %s' % directory
-  versions = []
-  for version in map(lambda x : x[len('elasticsearch-'):], filter(lambda x : re.match(r'^elasticsearch-\d+[.]\d+[.]\d+$', x), os.listdir(directory))):
-    if not version in BLACK_LIST:
-      versions.append(build_tuple(version))
+  assert os.path.isdir(directory), f'No such directory {directory}'
+  versions = [
+      build_tuple(version) for version in map(
+          lambda x: x[len('elasticsearch-'):],
+          filter(
+              lambda x: re.match(r'^elasticsearch-\d+[.]\d+[.]\d+$', x),
+              os.listdir(directory),
+          ),
+      ) if version not in BLACK_LIST
+  ]
   versions.sort()
 
   if lower_version: # lower version is set - picking a higher one
     versions = filter(lambda x : x > build_tuple(lower_version), versions)
-    assert len(versions) >= 1, 'Expected at least 1 higher version than %s version in %s ' % (lower_version, directory)
+    assert (
+        len(versions) >= 1
+    ), f'Expected at least 1 higher version than {lower_version} version in {directory} '
     random.shuffle(versions)
     return lower_version, build_version(versions[0])
   if upper_version:
     versions = filter(lambda x : x < build_tuple(upper_version), versions)
-    assert len(versions) >= 1, 'Expected at least 1 lower version than %s version in %s ' % (upper_version, directory)
+    assert (
+        len(versions) >= 1
+    ), f'Expected at least 1 lower version than {upper_version} version in {directory} '
     random.shuffle(versions)
     return build_version(versions[0]), upper_version
-  assert len(versions) >= 2, 'Expected at least 2 different version in %s but found %s' % (directory, len(versions))
+  assert (
+      len(versions) >= 2
+  ), f'Expected at least 2 different version in {directory} but found {len(versions)}'
   random.shuffle(versions)
-  versions = versions[0:2]
+  versions = versions[:2]
   versions.sort()
   return build_version(versions[0]), build_version(versions[1])
 
@@ -198,7 +215,7 @@ def build_tuple(version_string):
 # returns a new elasticsearch client and ensures the all nodes have joined the cluster
 # this method waits at most 30 seconds for all nodes to join
 def new_es_instance(num_nodes, http_port, timeout = 30):
-  logging.info('Waiting for %s nodes to join the cluster' % num_nodes)
+  logging.info(f'Waiting for {num_nodes} nodes to join the cluster')
   for _ in range(0, timeout):
     # TODO(simonw): ask Honza if there is a better way to do this?
     try:
@@ -211,35 +228,49 @@ def new_es_instance(num_nodes, http_port, timeout = 30):
     except (ConnectionError, TransportError):
       pass
     time.sleep(1)
-  assert False, 'Timed out waiting for %s nodes for %s seconds' % (num_nodes, timeout)
+  assert False, f'Timed out waiting for {num_nodes} nodes for {timeout} seconds'
 
 def assert_versions(bwc_version, current_version, node_dir):
-  assert [int(x) for x in bwc_version.split('.')] < [int(x) for x in current_version.split('.')],\
-      '[%s] must be < than [%s]' % (bwc_version, current_version)
+  assert [int(x) for x in bwc_version.split('.')] < [
+      int(x) for x in current_version.split('.')
+  ], f'[{bwc_version}] must be < than [{current_version}]'
   for version in [bwc_version, current_version]:
-    assert not version in BLACK_LIST, 'Version %s is blacklisted - %s, see %s' \
-                                          % (version, BLACK_LIST[version]['reason'],
-                                             BLACK_LIST[version]['issue'])
-    dir = os.path.join(node_dir, 'elasticsearch-%s' % current_version)
-    assert os.path.isdir(dir), 'Expected elasticsearch-%s install directory does not exists: %s' % (version, dir)
+    assert (
+        version not in BLACK_LIST
+    ), f"Version {version} is blacklisted - {BLACK_LIST[version]['reason']}, see {BLACK_LIST[version]['issue']}"
+    dir = os.path.join(node_dir, f'elasticsearch-{current_version}')
+    assert os.path.isdir(
+        dir
+    ), f'Expected elasticsearch-{version} install directory does not exists: {dir}'
 
 def full_cluster_restart(node_dir, current_version, bwc_version, tcp_port, http_port):
   assert_versions(bwc_version, current_version, node_dir)
   num_nodes = random.randint(2, 3)
   nodes = []
   data_dir = tempfile.mkdtemp()
-  logging.info('Running upgrade test from [%s] to [%s] seed: [%s] es.path.data: [%s] es.http.port [%s] es.tcp.port [%s]'
-        % (bwc_version, current_version, seed, data_dir, http_port, tcp_port))
+  logging.info(
+      f'Running upgrade test from [{bwc_version}] to [{current_version}] seed: [{seed}] es.path.data: [{data_dir}] es.http.port [{http_port}] es.tcp.port [{tcp_port}]'
+  )
   try:
-    logging.info('Starting %s BWC nodes of version %s' % (num_nodes, bwc_version))
-    unicast_addresses = ','.join(['127.0.0.1:%s' % (tcp_port+x) for x in range(0, num_nodes)])
-    for id in range(0, num_nodes):
-      nodes.append(start_node(bwc_version, data_dir, node_dir, unicast_addresses, tcp_port+id, http_port+id))
+    logging.info(f'Starting {num_nodes} BWC nodes of version {bwc_version}')
+    unicast_addresses = ','.join(
+        [f'127.0.0.1:{tcp_port + x}' for x in range(0, num_nodes)])
+    nodes.extend(
+        start_node(
+            bwc_version,
+            data_dir,
+            node_dir,
+            unicast_addresses,
+            tcp_port + id,
+            http_port + id,
+        ) for id in range(0, num_nodes))
     es = new_es_instance(num_nodes, http_port)
     es.indices.delete(index='test_index', ignore=404)
     num_shards = random.randint(1, 10)
     num_replicas = random.randint(0, 1)
-    logging.info('Create index with [%s] shards and [%s] replicas' % (num_shards, num_replicas))
+    logging.info(
+        f'Create index with [{num_shards}] shards and [{num_replicas}] replicas'
+    )
     es.indices.create(index='test_index', body={
         # TODO(simonw): can we do more here in terms of randomization - seems hard due to all the different version
         'settings': {
@@ -261,12 +292,21 @@ def full_cluster_restart(node_dir, current_version, bwc_version, tcp_port, http_
     # now upgrade the nodes and rerun the checks
     tcp_port = tcp_port + len(nodes) # bump up port to make sure we can claim them
     http_port = http_port + len(nodes)
-    logging.info('Full Cluster restart starts upgrading to version [elasticsearch-%s] es.http.port [%s] es.tcp.port [%s]'
-                 % (current_version, http_port, tcp_port))
+    logging.info(
+        f'Full Cluster restart starts upgrading to version [elasticsearch-{current_version}] es.http.port [{http_port}] es.tcp.port [{tcp_port}]'
+    )
     nodes = []
-    unicast_addresses = ','.join(['127.0.0.1:%s' % (tcp_port+x) for x in range(0, num_nodes)])
-    for id in range(0, num_nodes+1): # one more to trigger relocation
-      nodes.append(start_node(current_version, data_dir, node_dir, unicast_addresses, tcp_port+id, http_port+id))
+    unicast_addresses = ','.join(
+        [f'127.0.0.1:{tcp_port + x}' for x in range(0, num_nodes)])
+    nodes.extend(
+        start_node(
+            current_version,
+            data_dir,
+            node_dir,
+            unicast_addresses,
+            tcp_port + id,
+            http_port + id,
+        ) for id in range(0, num_nodes + 1))
     es = new_es_instance(num_nodes+1, http_port)
     logging.info('Nodes joined, waiting for green status')
     health = es.cluster.health(wait_for_status='green', wait_for_relocating_shards=0)
@@ -275,7 +315,9 @@ def full_cluster_restart(node_dir, current_version, bwc_version, tcp_port, http_
     # by running the indexing again we try to catch possible mapping problems after the upgrade
     index_documents(es, 'test_index', 'test_type', num_docs)
     run_basic_asserts(es, 'test_index', 'test_type', num_docs)
-    logging.info("[SUCCESS] - all test passed upgrading from version [%s] to version [%s]" % (bwc_version, current_version))
+    logging.info(
+        f"[SUCCESS] - all test passed upgrading from version [{bwc_version}] to version [{current_version}]"
+    )
   finally:
     for node in nodes:
       node.terminate()

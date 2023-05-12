@@ -57,9 +57,6 @@ if __name__ == '__main__':
   parser.add_argument('--key', '-k', default=None,
                       help='The key - uses the file name as default key')
   args = parser.parse_args()
-  if args.key:
-    key = args.key
-  else:
-    key = os.path.basename(args.file)
+  key = args.key if args.key else os.path.basename(args.file)
   connection = boto.connect_s3()
   download_s3(connection, args.path, key, args.file, args.bucket);

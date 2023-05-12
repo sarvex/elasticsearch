@@ -38,42 +38,38 @@ def parse_config():
 
 def main():
   c = parse_config()
-  
+
   if not os.path.exists(c.path):
-    print('Creating %s' % c.path)
+    print(f'Creating {c.path}')
     os.mkdir(c.path)
 
   is_windows = platform.system() == 'Windows'
 
   os.chdir(c.path)
-  version_dir = 'elasticsearch-%s' % c.version
+  version_dir = f'elasticsearch-{c.version}'
   if os.path.exists(version_dir):
     if c.force:
-      print('Removing old download %s' % version_dir)
+      print(f'Removing old download {version_dir}')
       shutil.rmtree(version_dir)
     else:
-      print('Version %s exists at %s' % (c.version, version_dir))
+      print(f'Version {c.version} exists at {version_dir}')
       return 
 
   # before 1.4.0, the zip file contains windows scripts, and tar.gz contained *nix scripts
-  if is_windows:
-    filename = '%s.zip' % version_dir
-  else:
-    filename = '%s.tar.gz' % version_dir
-
-  url = 'https://download.elasticsearch.org/elasticsearch/elasticsearch/%s' % filename
-  print('Downloading %s' % url)
+  filename = f'{version_dir}.zip' if is_windows else f'{version_dir}.tar.gz'
+  url = f'https://download.elasticsearch.org/elasticsearch/elasticsearch/{filename}'
+  print(f'Downloading {url}')
   urllib.request.urlretrieve(url, filename)
 
-  print('Extracting to %s' % version_dir)
+  print(f'Extracting to {version_dir}')
   if is_windows:
     archive = zipfile.ZipFile(filename)
-    archive.extractall() 
+    archive.extractall()
   else:
     # for some reason python's tarfile module has trouble with ES tgz?
-    subprocess.check_call('tar -xzf %s' % filename, shell=True)
+    subprocess.check_call(f'tar -xzf {filename}', shell=True)
 
-  print('Cleaning up %s' % filename)
+  print(f'Cleaning up {filename}')
   os.remove(filename)
 
 if __name__ == '__main__':

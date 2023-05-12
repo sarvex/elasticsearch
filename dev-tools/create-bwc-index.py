@@ -26,7 +26,7 @@ import sys
 import re
 
 if sys.version_info[0] > 2:
-  print('%s must use python 2.x (for the ES python client)' % sys.argv[0])
+  print(f'{sys.argv[0]} must use python 2.x (for the ES python client)')
 
 from datetime import datetime
 try:
@@ -48,16 +48,16 @@ def frequently():
 # asserts the correctness of the given hits given they are sorted asc
 def assert_sort(hits):
   values = [hit['sort'] for hit in hits['hits']['hits']]
-  assert len(values) > 0, 'expected non emtpy result'
+  assert values, 'expected non emtpy result'
   val = min(values)
   for x in values:
-    assert x >= val, '%s >= %s' % (x, val)
+    assert x >= val, f'{x} >= {val}'
     val = x
 
 # Indexes the given number of document into the given index
 # and randomly runs refresh, optimize and flush commands
 def index_documents(es, index_name, type, num_docs):
-  logging.info('Indexing %s docs' % num_docs)
+  logging.info(f'Indexing {num_docs} docs')
   for id in range(0, num_docs):
     es.index(index=index_name, doc_type=type, id=id, body={'string': str(random.randint(0, 100)),
                                                            'long_sort': random.randint(0, 100),
@@ -77,7 +77,7 @@ def run_basic_asserts(es, index_name, type, num_docs):
   for _ in range(0, num_docs):
     random_doc_id = random.randint(0, num_docs-1)
     doc = es.get(index=index_name, doc_type=type, id=random_doc_id)
-    assert doc, 'Expected document for id %s but got %s' % (random_doc_id, doc)
+    assert doc, f'Expected document for id {random_doc_id} but got {doc}'
 
   assert_sort(es.search(index=index_name,
                   body={
@@ -101,17 +101,18 @@ def build_tuple(version_string):
   return [int(x) for x in version_string.split('.')]
 
 def start_node(version, release_dir, data_dir, tcp_port, http_port):
-  logging.info('Starting node from %s on port %s/%s' % (release_dir, tcp_port, http_port))
+  logging.info(
+      f'Starting node from {release_dir} on port {tcp_port}/{http_port}')
   cmd = [
-    os.path.join(release_dir, 'bin/elasticsearch'),
-    '-Des.path.data=%s' % data_dir,
-    '-Des.path.logs=logs',
-    '-Des.cluster.name=bwc_index_' + version,  
-    '-Des.network.host=localhost', 
-    '-Des.discovery.zen.ping.multicast.enabled=false',
-    '-Des.script.disable_dynamic=true',
-    '-Des.transport.tcp.port=%s' % tcp_port,
-    '-Des.http.port=%s' % http_port
+      os.path.join(release_dir, 'bin/elasticsearch'),
+      f'-Des.path.data={data_dir}',
+      '-Des.path.logs=logs',
+      f'-Des.cluster.name=bwc_index_{version}',
+      '-Des.network.host=localhost',
+      '-Des.discovery.zen.ping.multicast.enabled=false',
+      '-Des.script.disable_dynamic=true',
+      f'-Des.transport.tcp.port={tcp_port}',
+      f'-Des.http.port={http_port}',
   ]
   if version.startswith('0.') or version.startswith('1.0.0.Beta') :
     cmd.append('-f') # version before 1.0 start in background automatically
@@ -129,7 +130,7 @@ def create_client(http_port, timeout=30):
     except (ConnectionError, TransportError):
       pass
     time.sleep(1)
-  assert False, 'Timed out waiting for node for %s seconds' % timeout
+  assert False, f'Timed out waiting for node for {timeout} seconds'
 
 def generate_index(client, version):
   client.indices.delete(index='test', ignore=404)
@@ -207,7 +208,7 @@ def generate_index(client, version):
       'mappings': mappings
   })
   health = client.cluster.health(wait_for_status='green', wait_for_relocating_shards=0)
-  assert health['timed_out'] == False, 'cluster health timed out %s' % health
+  assert health['timed_out'] == False, f'cluster health timed out {health}'
 
   num_docs = random.randint(10, 100)
   index_documents(client, 'test', 'doc', num_docs)
@@ -221,27 +222,35 @@ def snapshot_index(client, cfg):
       'cluster.routing.allocation.exclude.version_attr': cfg.version
     }
   })
-  client.indices.put_template(name='template_' + cfg.version.lower(), order=0, body={
-    "template": "te*",
-    "settings": {
-      "number_of_shards" : 1
-    },
-    "mappings": {
-      "type1": {
-        "_source": { "enabled" : False }
-      }
-    },
-    "aliases": {
-      "alias1": {},
-      "alias2": {
-        "filter": {
-          "term": {"version" : cfg.version }
-        },
-        "routing": "kimchy"
+  client.indices.put_template(
+      name=f'template_{cfg.version.lower()}',
+      order=0,
+      body={
+          "template": "te*",
+          "settings": {
+              "number_of_shards": 1
+          },
+          "mappings": {
+              "type1": {
+                  "_source": {
+                      "enabled": False
+                  }
+              }
+          },
+          "aliases": {
+              "alias1": {},
+              "alias2": {
+                  "filter": {
+                      "term": {
+                          "version": cfg.version
+                      }
+                  },
+                  "routing": "kimchy",
+              },
+              "{index}-alias": {},
+          },
       },
-      "{index}-alias": {}
-    }
-  })
+  )
   client.snapshot.create_repository(repository='test_repo', body={
     'type': 'fs',
     'settings': {
@@ -252,10 +261,10 @@ def snapshot_index(client, cfg):
   client.snapshot.delete_repository(repository='test_repo')
 
 def compress_index(version, tmp_dir, output_dir):
-  compress(tmp_dir, output_dir, 'index-%s.zip' % version, 'data')
+  compress(tmp_dir, output_dir, f'index-{version}.zip', 'data')
 
 def compress_repo(version, tmp_dir, output_dir):
-  compress(tmp_dir, output_dir, 'repo-%s.zip' % version, 'repo')
+  compress(tmp_dir, output_dir, f'repo-{version}.zip', 'repo')
 
 def compress(tmp_dir, output_dir, zipfile, directory):
   abs_output_dir = os.path.abspath(output_dir)
@@ -265,7 +274,7 @@ def compress(tmp_dir, output_dir, zipfile, directory):
   logging.info('Compressing index into %s', zipfile)
   olddir = os.getcwd()
   os.chdir(tmp_dir)
-  subprocess.check_call('zip -r %s %s' % (zipfile, directory), shell=True)
+  subprocess.check_call(f'zip -r {zipfile} {directory}', shell=True)
   os.chdir(olddir)
 
 
@@ -283,18 +292,19 @@ def parse_config():
                       help='The port to use as the minimum port for HTTP communication')
   cfg = parser.parse_args()
 
-  cfg.release_dir = os.path.join(cfg.releases_dir, 'elasticsearch-%s' % cfg.version)
+  cfg.release_dir = os.path.join(cfg.releases_dir,
+                                 f'elasticsearch-{cfg.version}')
   if not os.path.exists(cfg.release_dir):
-    parser.error('ES version %s does not exist in %s' % (cfg.version, cfg.releases_dir)) 
+    parser.error(f'ES version {cfg.version} does not exist in {cfg.releases_dir}') 
 
   if not os.path.exists(cfg.output_dir):
-    parser.error('Output directory does not exist: %s' % cfg.output_dir)
+    parser.error(f'Output directory does not exist: {cfg.output_dir}')
 
   cfg.tmp_dir = tempfile.mkdtemp()
   cfg.data_dir = os.path.join(cfg.tmp_dir, 'data')
   cfg.repo_dir = os.path.join(cfg.tmp_dir, 'repo')
-  logging.info('Temp data dir: %s' % cfg.data_dir)
-  logging.info('Temp repo dir: %s' % cfg.repo_dir)
+  logging.info(f'Temp data dir: {cfg.data_dir}')
+  logging.info(f'Temp repo dir: {cfg.repo_dir}')
   cfg.snapshot_supported = not (cfg.version.startswith('0.') or cfg.version == '1.0.0.Beta1')
 
   return cfg
